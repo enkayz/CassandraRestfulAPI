@@ -3,10 +3,10 @@ from flask import render_template
 from flask import jsonify
 from flask import redirect
 from flask import Blueprint
-from flask.ext.paginate import Pagination
-from flask.ext.mongoengine import MongoEngine
+from flask_paginate import Pagination
+from flask_mongoengine import MongoEngine
 from pymongo import read_preferences
-from flask.ext.mongoengine.wtf import model_form
+from flask_mongoengine.wtf import model_form
 from math import ceil
 import json
 import libvirt
@@ -14,7 +14,7 @@ import os
 import numpy
 import sys
 from sh import ssh
-
+from past.builtins import xrange
 
 ######## Cassandra Import Statements ###########
 from cassandra.cluster import Cluster
@@ -69,31 +69,31 @@ class Pagination(object):
 
 @app.route('/')
 def index():
-   	return render_template('index.html')
+	return render_template('index.html')
 
 ####################### Code related to KeySpace Operations #######################
 
 @app.route('/keyspaces/', defaults={'page': 1}, methods=['GET'])
 @app.route('/keyspaces/page/<int:page>', methods=['GET'])
 def getKeyspaces(page):
-   	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select keyspace_name from schema_keyspaces')
+	rows = session.execute('select keyspace_name from system_schema.keyspaces')
 	keyspaces=[]
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		keyspaces.append(rows[x][0])
-    	pages = keyspaces[(page-1)*PER_PAGE:PER_PAGE*page]
-    	if not pages and page != 1:
-   		abort(404)
-    	pagination = Pagination(page, PER_PAGE, len(rows))
-   	return render_template('listkeyspace.html',pagination=pagination,pages=pages,section = 'getKeyspaces')
+	pages = keyspaces[(page-1)*PER_PAGE:PER_PAGE*page]
+	if not pages and page != 1:
+		abort(404)
+	pagination = Pagination(page, PER_PAGE, len(list(rows)))
+	return render_template('listkeyspace.html',pagination=pagination,pages=pages,section = 'getKeyspaces')
 
 @app.route('/keyspaces/<keyspaceid>', methods=['GET'])
 def getKeyspaceInfo(keyspaceid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	rows = session.execute('select * from system_schema.keyspaces')
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		info['keyspaceid'] = int(keyspaceid)
@@ -114,15 +114,15 @@ def createKeyspace():
 	if name == None or replicationFactor ==  None:
 		return render_template('error.html',error="Not a valid keyspace")
 	else:
-		cluster = Cluster()
+		cluster = Cluster(['db01.siem.rackcorp.com'])
 		session = cluster.connect('system')
 		query = "CREATE KEYSPACE " + name + " WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor': " + replicationFactor + " }"
 		session.execute(query)
 		info = {}
 		info['name'] = name
 		info['replication_factor'] = replicationFactor
-		rows = session.execute('select * from schema_keyspaces')
-		for x in range(len(rows)):
+		rows = session.execute('select * from system_schema.keyspaces')
+		for x in range(len(list(rows))):
 			if rows[x][0] == name:
 				info['keyspaceid'] = x + 1
 		return render_template('keyspaceinfo.html',info=info)
@@ -132,12 +132,12 @@ def updateKeyspace(keyspaceid):
 	data = request.data
 	dataDict = json.loads(data)
 	replicationFactor = dataDict['replicationFactor']
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select keyspace_name from schema_keyspaces')
+	rows = session.execute('select keyspace_name from system_schema.keyspaces')
 	if rows[int(keyspaceid) - 1][0] == "system":
 		return jsonify(error="system keyspace is not modifiable")
-	if int(keyspaceid) <= (len(rows) + 1) and int(keyspaceid) > 0:
+	if int(keyspaceid) <= (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		strategy_options = "{'replication_factor': " + replicationFactor + " }"
 		query = "ALTER KEYSPACE " + rows[int(keyspaceid) -1][0] + " WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : " + replicationFactor + " }"
 		session.execute(query)
@@ -147,13 +147,13 @@ def updateKeyspace(keyspaceid):
 
 @app.route('/keyspaces/<keyspaceid>', methods=['DELETE'])
 def deleteKeyspace(keyspaceid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select keyspace_name from schema_keyspaces')
-	if int(keyspaceid) <= (len(rows) + 1) and int(keyspaceid) > 0:
+	rows = session.execute('select keyspace_name from system_schema.keyspaces')
+	if int(keyspaceid) <= (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		query = "DROP KEYSPACE " + rows[int(keyspaceid) -1][0]
 		session.execute(query)
-	 	return jsonify(status="Success")
+		return jsonify(status="Success")
 	else:
 		return jsonify(error="Not a valid keyspaceid")
 
@@ -162,37 +162,37 @@ def deleteKeyspace(keyspaceid):
 @app.route('/nodes/', defaults={'page': 1}, methods=['GET'])
 @app.route('/nodes/page/<int:page>', methods=['GET'])
 def getnodes(page):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
 	rows = session.execute('select listen_address from local')
 	info = []
 	c = 0
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		info.append(rows[x][0])
 		c=c+1
 	rows = session.execute('select peer from peers')
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		info.append(rows[x][0])
 		c=c+1
 	pages = info[(page-1)*PER_PAGE:PER_PAGE*page]
-    	if not pages and page != 1:
-   		abort(404)
-    	pagination = Pagination(page, PER_PAGE, len(info))
-   	return render_template('listnode.html',pagination=pagination,pages=pages,section = 'getNodes')
+	if not pages and page != 1:
+		abort(404)
+	pagination = Pagination(page, PER_PAGE, len(info))
+	return render_template('listnode.html',pagination=pagination,pages=pages,section = 'getNodes')
 	
 
 @app.route('/nodes/<nodeid>', methods=['GET'])
 def getNode(nodeid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
 	rows = session.execute('select listen_address from local')
 	info = {}
 	c = 0
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		info[c+1] = rows[x][0]
 		c=c+1
 	rows = session.execute('select peer from peers')
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		info[c+1] = rows[x][0]
 		c=c+1
 	if int(nodeid) <= c and int(nodeid) > 0:
@@ -206,7 +206,7 @@ def getNode(nodeid):
 @app.route('/nodes/', methods=['POST'])
 def createNode():
 	try:
-		cluster = Cluster()
+		cluster = Cluster(['db01.siem.rackcorp.com'])
 		session = cluster.connect('system')
 		data = request.data
 		dataDict = json.loads(data)
@@ -221,7 +221,7 @@ def createNode():
 
 @app.route('/nodes/<nodeid>', methods=['DELETE'])
 def deleteNode(nodeid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
 	rows = session.execute('select listen_address from local')
 	data = request.data
@@ -232,12 +232,12 @@ def deleteNode(nodeid):
 	host = {}
 	c = 0
 	h = 0
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		info[c+1] = rows[x][0]
 		c=c+1
 	h = c
 	rows = session.execute('select peer,host_id from peers')
-	for x in range(len(rows)):
+	for x in range(len(list(rows))):
 		info[c+1] = rows[x][0]
 		host[c+1] = rows[x][1]
 		c=c+1
@@ -256,36 +256,36 @@ def deleteNode(nodeid):
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/', defaults={'page': 1}, methods=['GET'])
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/page/<int:page>', methods=['GET'])
 def getColumnFamilys(page,keyspaceid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
+	rows = session.execute('select * from system_schema.keyspaces')
 	info = []
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		rows = session.execute("SELECT * FROM schema_columnfamilies where keyspace_name='" + info['name'] + "'")
 		info = []
-		for x in range(len(rows)):
+		for x in range(len(list(rows))):
 			info.append(rows[x][1])
 	else:
 		return render_template('error.html',error="Not a valid keyspaceid")
 	pages = info[(page-1)*PER_PAGE:PER_PAGE*page]
-    	if not pages and page != 1:
-   		abort(404)
+	if not pages and page != 1:
+		abort(404)
 	pagination = Pagination(page, PER_PAGE, len(info))
-   	return render_template('listcolumnfamily.html',pagination=pagination,keyspaceid=keyspaceid,pages=pages,section = 'getColumnFamilys')
+	return render_template('listcolumnfamily.html',pagination=pagination,keyspaceid=keyspaceid,pages=pages,section = 'getColumnFamilys')
 		
 
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilysid>', methods=['GET'])
 def getColumnFamilyInfo(keyspaceid,columnfamilysid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	rows = session.execute('select * from system_schema.keyspaces')
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		rows = session.execute("SELECT * FROM schema_columnfamilies where keyspace_name='" + info['name'] + "'")
-		if int(columnfamilysid) <  (len(rows) + 1) and int(columnfamilysid) > 0:
+		if int(columnfamilysid) <  (len(list(rows)) + 1) and int(columnfamilysid) > 0:
 			info = {}
 			info['name'] = rows[int(columnfamilysid)-1][1]
 			info['caching'] = rows[int(columnfamilysid)-1][3]
@@ -299,17 +299,17 @@ def getColumnFamilyInfo(keyspaceid,columnfamilysid):
 
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilysid>', methods=['DELETE'])
 def deleteColumnFamily(columnfamilysid,keyspaceid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	rows = session.execute('select * from system_schema.keyspaces')
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		rows = session.execute("SELECT * FROM schema_columnfamilies where keyspace_name='" + info['name'] + "'")
-		if int(columnfamilysid) <  (len(rows) + 1) and int(columnfamilysid) > 0:
+		if int(columnfamilysid) <  (len(list(rows)) + 1) and int(columnfamilysid) > 0:
 			query = "DROP TABLE " + info["name"] + "." + rows[int(columnfamilysid) -1][1]
 			session.execute(query)
-	 		return jsonify(status="success")
+			return jsonify(status="success")
 		else:
 			return render_template('error.html',error="Not a valid columnfamilyid")
 	else:
@@ -317,7 +317,7 @@ def deleteColumnFamily(columnfamilysid,keyspaceid):
 
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/', methods=['POST'])
 def createColumnFamily(keyspaceid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
 	data = request.data
 	dataDict = json.loads(data)
@@ -331,9 +331,9 @@ def createColumnFamily(keyspaceid):
 	if field1 == None or field2 ==  None or field3 == None or name == None:
 		return render_template('error.html',error="Fields are missing")
 	else:
-		rows = session.execute('select * from schema_keyspaces')
-		if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
-			cluster = Cluster()
+		rows = session.execute('select * from system_schema.keyspaces')
+		if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
+			cluster = Cluster(['db01.siem.rackcorp.com'])
 			session = cluster.connect(rows[int(keyspaceid)-1][0])
 			query = "CREATE TABLE " + name + "( " + field1 + " " + field1_type + " PRIMARY KEY," + field2 + " " + field2_type  + " ," + field3 + " " + field3_type  + " )"
 			session.execute(query)
@@ -347,11 +347,11 @@ def createColumnFamily(keyspaceid):
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilyid>/entrys/', defaults={'page': 1}, methods=['GET'])
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilyid>/entrys/page/<int:page>', methods=['GET'])
 def getEntrys(page,keyspaceid,columnfamilyid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
+	rows = session.execute('select * from system_schema.keyspaces')
 	info = []
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		keyspacename = rows[int(keyspaceid) -1][0]
@@ -364,8 +364,8 @@ def getEntrys(page,keyspaceid,columnfamilyid):
 		fields = []
 		for i in rows:
 			fields.append(i)
-		temp = fields[len(rows) - 1]
-		fields[len(rows) - 1] = fields[0]
+		temp = fields[len(list(rows)) - 1]
+		fields[len(list(rows)) - 1] = fields[0]
 		fields[0] = temp
 		temp = fields[1]
 		fields[1] = fields[2]
@@ -373,18 +373,18 @@ def getEntrys(page,keyspaceid,columnfamilyid):
 	else:
 		return render_template('error.html',error="Not a valid keyspaceid")
 	pages = info[(page-1)*PER_PAGE:PER_PAGE*page]
-    	if not pages and page != 1:
-   		abort(404)
+	if not pages and page != 1:
+		abort(404)
 	pagination = Pagination(page, PER_PAGE, len(info))
-   	return render_template('listentrys.html',pagination=pagination,keyspaceid=keyspaceid,columnfamilyid=columnfamilyid,pages=pages,fields=fields,section = 'getEntrys')
+	return render_template('listentrys.html',pagination=pagination,keyspaceid=keyspaceid,columnfamilyid=columnfamilyid,pages=pages,fields=fields,section = 'getEntrys')
 
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilyid>/entrys/',methods=['POST'])
 def createEntry(keyspaceid,columnfamilyid):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
+	rows = session.execute('select * from system_schema.keyspaces')
 	info = []
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		keyspacename = rows[int(keyspaceid) -1][0]
@@ -396,7 +396,7 @@ def createEntry(keyspaceid,columnfamilyid):
 		fields = dataDict.keys()
 		values = []
 		for key, value in dataDict.items():
-    			values.append(value)
+			values.append(value)
 		rows = session.execute("INSERT INTO " + columnfamilyname + " (" + fields[0] + ", " + fields[1] + ", " + fields[2] + ") VALUES('" + values[0] + "', '" + values[1] + "', '" + values[2] + "')") 
 	else:
 		return render_template('error.html',error="Not a valid keyspaceid")
@@ -404,11 +404,11 @@ def createEntry(keyspaceid,columnfamilyid):
 
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilyid>/entrys/<entryname>', methods=['GET'])
 def getEntrysInfo(keyspaceid,columnfamilyid,entryname):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
+	rows = session.execute('select * from system_schema.keyspaces')
 	info = []
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		keyspacename = rows[int(keyspaceid) -1][0]
@@ -426,8 +426,8 @@ def getEntrysInfo(keyspaceid,columnfamilyid,entryname):
 		fields = []
 		for i in rows:
 			fields.append(i)
-		temp = fields[len(rows) - 1]
-		fields[len(rows) - 1] = fields[0]
+		temp = fields[len(list(rows)) - 1]
+		fields[len(list(rows)) - 1] = fields[0]
 		fields[0] = temp
 		temp = fields[1]
 		fields[1] = fields[2]
@@ -437,11 +437,11 @@ def getEntrysInfo(keyspaceid,columnfamilyid,entryname):
 
 @app.route('/keyspaces/<keyspaceid>/columnfamilys/<columnfamilysid>/entrys/<entryname>', methods=['DELETE'])
 def deleteEntry(columnfamilysid,keyspaceid,entryname):
-	cluster = Cluster()
+	cluster = Cluster(['db01.siem.rackcorp.com'])
 	session = cluster.connect('system')
-	rows = session.execute('select * from schema_keyspaces')
+	rows = session.execute('select * from system_schema.keyspaces')
 	info = []
-	if int(keyspaceid) < (len(rows) + 1) and int(keyspaceid) > 0:
+	if int(keyspaceid) < (len(list(rows)) + 1) and int(keyspaceid) > 0:
 		info = {}
 		info['name'] = rows[int(keyspaceid) -1][0]
 		keyspacename = rows[int(keyspaceid) -1][0]
